@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Configuração de variáveis
+AWS_PROFILE="default"
+GROUP_NAME="TI-Team"
+MFA_POLICY_NAME="Force-MFA-Policy"
+
+# Verificar AWS CLI
+if ! command -v aws &> /dev/null; then
+    echo "AWS CLI não está instalado. Por favor, instale primeiro."
+    exit 1
+fi
+
+# Criar grupo IAM
+echo "Criando grupo $GROUP_NAME..."
+aws iam create-group --group-name $GROUP_NAME
+
+# Aplicar política MFA
+echo "Aplicando política MFA..."
+aws iam create-policy --policy-name $MFA_POLICY_NAME --policy-document file://policies/mfa-policy.json
+
+# Função para criar usuários
+create_user() {
+    local username=$1
+    local email=$2
+    
+    echo "Criando usuário: $username"
+    aws iam create-user --user-name $username
+    
+    # Gerar senha inicial aleatória
+    password=$(openssl rand -base64 12)
+    
+    # Criar credenciais de login
+    aws iam create-login-profile --user-name $username --password $password --password-reset-required
+    
+    # Adicionar ao grupo
+    aws iam add-user-to-group --user-name $username --group-name $GROUP_NAME
+    
+    # Registrar em log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Usuário criado: $username" >> logs/migration.log
+    echo "$username,$email,$password" >> logs/credentials.csv
+}
+
+# Processar arquivo CSV de usuários
+while IFS=, read -r username email
+do
+    create_user "$username" "$email"
+done < data/users.csv
+
+echo "Migração concluída. Verifique os logs em logs/migration.log"
